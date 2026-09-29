@@ -26,21 +26,46 @@
   @keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
   .hist{margin-top:18px;font-size:12px;color:#777;text-align:left}
   .hist div{padding:3px 0;border-top:1px solid #eee;display:flex;justify-content:space-between}
+  button.sec{margin-top:10px;background:#fff;color:#1f2a44;border:1px solid #1f2a44}
+  button.sec:hover:not(:disabled){background:#eef0f4}
+  .modal{position:fixed;inset:0;background:rgba(15,20,35,.65);display:none;align-items:center;justify-content:center;z-index:50;padding:2vh 2vw}
+  .modal.on{display:flex}
+  .mbox{background:#fff;width:96vw;height:94vh;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+  .mtop{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 14px;background:#1f2a44;color:#fff;font-size:14px;flex:none}
+  .mtop .acts{display:flex;gap:8px}
+  .mtop button{width:auto;padding:6px 12px;font-size:13px;background:#fff;color:#1f2a44;border-radius:6px}
+  .mtop button:hover{background:#dfe3ec}
+  .mbox iframe{flex:1;border:0;width:100%;background:#fff}
 </style>
 </head>
 <body>
 <div class="card">
   <h1>Comparativa BS NS vs BS AR</h1>
-  <p class="sub">Genera el informe y lo envía por mail.</p>
+  <p class="sub">Genera el informe y lo abre en pantalla.</p>
 
   <input class="pw" id="pw" type="password" placeholder="Contraseña" autocomplete="off">
-  <button id="btn">Generar y enviar</button>
+  <button id="btn">Generar informe</button>
 
   <div class="timer idle" id="timer">00:00.0</div>
   <div class="status" id="status">Listo para generar.</div>
   <div class="bar" id="bar"><i></i></div>
 
+  <button class="sec" id="btnVer" style="display:none">Ver último informe</button>
+
   <div class="hist" id="hist"></div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="mbox">
+    <div class="mtop">
+      <span>Comparativa BS NS vs BS AR</span>
+      <div class="acts">
+        <button id="btnTab">Abrir en pestaña nueva</button>
+        <button id="btnCerrar">Cerrar &#10005;</button>
+      </div>
+    </div>
+    <iframe id="frame"></iframe>
+  </div>
 </div>
 
 <script>
@@ -71,6 +96,26 @@ function addHist(ms, ok){
     return '<div><span>' + x.h + (x.ok ? '' : ' (error)') + '</span><b>' + fmt(x.ms) + '</b></div>';
   }).join('');
 }
+
+var ultimoHtml = null;
+var modal = document.getElementById('modal');
+var frame = document.getElementById('frame');
+var btnVer = document.getElementById('btnVer');
+
+function abrirInforme(){
+  frame.srcdoc = ultimoHtml;
+  modal.classList.add('on');
+}
+function cerrarInforme(){ modal.classList.remove('on'); }
+document.getElementById('btnCerrar').addEventListener('click', cerrarInforme);
+modal.addEventListener('click', function(e){ if (e.target === modal) cerrarInforme(); });
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') cerrarInforme(); });
+btnVer.addEventListener('click', abrirInforme);
+document.getElementById('btnTab').addEventListener('click', function(){
+  if (!ultimoHtml) return;
+  var url = URL.createObjectURL(new Blob([ultimoHtml], { type: 'text/html' }));
+  window.open(url, '_blank');
+});
 
 function terminar(ok, msg){
   clearInterval(tick);
@@ -124,8 +169,12 @@ btn.addEventListener('click', function(){
     return r.json().catch(function(){ return {}; });
   })
   .then(function(d){
-    var extra = (d && d.filas != null) ? ' (' + d.filas + ' filas)' : '';
-    terminar(true, 'Listo, informe enviado por mail' + extra + '.');
+    if (!d || !d.html) throw new Error('La respuesta no trae el informe. Revisá el nodo Respond to Webhook.');
+    ultimoHtml = d.html;
+    btnVer.style.display = 'block';
+    var extra = (d.filas != null) ? ' (' + d.filas + ' filas)' : '';
+    terminar(true, 'Listo, informe generado' + extra + '.');
+    abrirInforme();
   })
   .catch(function(e){
     clearTimeout(to);
