@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Generar comparativa BS NS vs BS AR</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#222}
+  .card{background:#fff;width:100%;max-width:440px;margin:20px;padding:32px 28px;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,.1);text-align:center}
+  h1{margin:0 0 6px;font-size:20px;color:#1f2a44}
+  p.sub{margin:0 0 24px;font-size:13px;color:#666}
+  input.pw{width:100%;padding:12px;margin-bottom:12px;border:1px solid #bbb;border-radius:8px;font-size:15px;text-align:center}
+  input.pw:focus{outline:2px solid #1f2a44;border-color:#1f2a44}
+  button{width:100%;padding:14px;border:0;border-radius:8px;background:#1f2a44;color:#fff;font-size:16px;cursor:pointer;transition:background .2s}
+  button:hover:not(:disabled){background:#2f3f68}
+  button:disabled{background:#8a92a6;cursor:not-allowed}
+  .timer{margin:26px 0 6px;font-size:44px;font-weight:bold;font-variant-numeric:tabular-nums;color:#1f2a44}
+  .timer.idle{color:#b8bcc8}
+  .timer.ok{color:#1e8449}
+  .timer.err{color:#c0392b}
+  .status{min-height:40px;font-size:14px;color:#444}
+  .bar{height:6px;background:#e4e6ec;border-radius:3px;overflow:hidden;margin-top:14px;opacity:0;transition:opacity .2s}
+  .bar.on{opacity:1}
+  .bar i{display:block;height:100%;width:40%;background:#1f2a44;border-radius:3px;animation:slide 1.2s infinite ease-in-out}
+  @keyframes slide{0%{margin-left:-40%}100%{margin-left:100%}}
+  .hist{margin-top:18px;font-size:12px;color:#777;text-align:left}
+  .hist div{padding:3px 0;border-top:1px solid #eee;display:flex;justify-content:space-between}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Comparativa BS NS vs BS AR</h1>
+  <p class="sub">Genera el informe y lo envía por mail.</p>
+
+  <input class="pw" id="pw" type="password" placeholder="Contraseña" autocomplete="off">
+  <button id="btn">Generar y enviar</button>
+
+  <div class="timer idle" id="timer">00:00.0</div>
+  <div class="status" id="status">Listo para generar.</div>
+  <div class="bar" id="bar"><i></i></div>
+
+  <div class="hist" id="hist"></div>
+</div>
+
+<script>
+// ====== CONFIG ======
+var URL_WEBHOOK = 'https://envy-recollect-last.ngrok-free.dev/webhook/comparativa-bs';
+var TIMEOUT_MS  = 5 * 60 * 1000; // 5 minutos
+
+// ====== UI ======
+var btn = document.getElementById('btn');
+var timerEl = document.getElementById('timer');
+var statusEl = document.getElementById('status');
+var barEl = document.getElementById('bar');
+var histEl = document.getElementById('hist');
+var t0 = 0, tick = null, historial = [];
+
+function fmt(ms){
+  var s = ms / 1000;
+  var m = Math.floor(s / 60);
+  var r = (s - m * 60).toFixed(1);
+  if (r.length < 4) r = '0' + r;
+  return (m < 10 ? '0' : '') + m + ':' + r;
+}
+function setTimerClass(c){ timerEl.className = 'timer ' + c; }
+function addHist(ms, ok){
+  historial.unshift({ h: new Date().toLocaleTimeString('es-AR'), ms: ms, ok: ok });
+  historial = historial.slice(0, 5);
+  histEl.innerHTML = historial.map(function(x){
+    return '<div><span>' + x.h + (x.ok ? '' : ' (error)') + '</span><b>' + fmt(x.ms) + '</b></div>';
+  }).join('');
+}
+
+function terminar(ok, msg){
+  clearInterval(tick);
+  var ms = performance.now() - t0;
+  timerEl.textContent = fmt(ms);
+  setTimerClass(ok ? 'ok' : 'err');
+  statusEl.textContent = msg;
+  barEl.classList.remove('on');
+  btn.disabled = false;
+  btn.textContent = 'Generar de nuevo';
+  addHist(ms, ok);
+}
+
+var pwEl = document.getElementById('pw');
+pwEl.addEventListener('keydown', function(e){ if (e.key === 'Enter') btn.click(); });
+
+btn.addEventListener('click', function(){
+  var API_KEY = pwEl.value;
+  if (!API_KEY) {
+    setTimerClass('err');
+    statusEl.textContent = 'Escribí la contraseña para continuar.';
+    pwEl.focus();
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Generando...';
+  setTimerClass('');
+  statusEl.textContent = 'Consultando Sheets y Odoo, armando el informe...';
+  barEl.classList.add('on');
+
+  t0 = performance.now();
+  timerEl.textContent = fmt(0);
+  tick = setInterval(function(){ timerEl.textContent = fmt(performance.now() - t0); }, 100);
+
+  var ctrl = new AbortController();
+  var to = setTimeout(function(){ ctrl.abort(); }, TIMEOUT_MS);
+
+  fetch(URL_WEBHOOK, {
+    method: 'POST',
+    headers: {
+      'x-api-key': API_KEY,
+      'ngrok-skip-browser-warning': 'true'
+    },
+    signal: ctrl.signal
+  })
+  .then(function(r){
+    clearTimeout(to);
+    if (r.status === 403 || r.status === 401) throw new Error('Contraseña incorrecta.');
+    if (r.status === 404) throw new Error('Webhook no encontrado (404). Revisá que el workflow esté activo.');
+    if (!r.ok) throw new Error('Error del servidor (' + r.status + ').');
+    return r.json().catch(function(){ return {}; });
+  })
+  .then(function(d){
+    var extra = (d && d.filas != null) ? ' (' + d.filas + ' filas)' : '';
+    terminar(true, 'Listo, informe enviado por mail' + extra + '.');
+  })
+  .catch(function(e){
+    clearTimeout(to);
+    var msg = e.name === 'AbortError'
+      ? 'Se cortó por tiempo (más de 5 minutos). Revisá la ejecución en n8n.'
+      : (e.message === 'Failed to fetch'
+          ? 'No se pudo conectar. Revisá que n8n y ngrok estén corriendo y los Allowed Origins.'
+          : e.message);
+    terminar(false, msg);
+  });
+});
+</script>
+</body>
+</html>
