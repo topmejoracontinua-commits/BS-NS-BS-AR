@@ -7,11 +7,16 @@
 <style>
   *{box-sizing:border-box}
   body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#222}
-  .card{background:#fff;width:100%;max-width:440px;margin:20px;padding:32px 28px;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,.1);text-align:center}
+  .card{background:#fff;width:100%;max-width:520px;margin:20px;padding:32px 28px;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,.1);text-align:center}
   h1{margin:0 0 6px;font-size:20px;color:#1f2a44}
-  p.sub{margin:0 0 24px;font-size:13px;color:#666}
+  p.sub{margin:0 0 20px;font-size:13px;color:#666}
   input.pw{width:100%;padding:12px;margin-bottom:12px;border:1px solid #bbb;border-radius:8px;font-size:15px;text-align:center}
   input.pw:focus{outline:2px solid #1f2a44;border-color:#1f2a44}
+  .campo{text-align:left;margin-bottom:14px}
+  .campo label{display:block;font-size:12px;font-weight:bold;color:#1f2a44;margin-bottom:6px}
+  textarea.msg{width:100%;min-height:180px;padding:10px;border:1px solid #bbb;border-radius:8px;font-family:'Courier New',monospace;font-size:12px;resize:vertical;line-height:1.4}
+  textarea.msg:focus{outline:2px solid #1f2a44;border-color:#1f2a44}
+  .contador{font-size:11px;color:#888;text-align:right;margin-top:3px}
   button{width:100%;padding:14px;border:0;border-radius:8px;background:#1f2a44;color:#fff;font-size:16px;cursor:pointer;transition:background .2s}
   button:hover:not(:disabled){background:#2f3f68}
   button:disabled{background:#8a92a6;cursor:not-allowed}
@@ -41,9 +46,16 @@
 <body>
 <div class="card">
   <h1>Comparativa BS NS vs BS AR</h1>
-  <p class="sub">Genera el informe y lo abre en pantalla.</p>
+  <p class="sub">Pegá el mensaje de BS NS, generá el informe y lo abre en pantalla.</p>
 
   <input class="pw" id="pw" type="password" placeholder="Contraseña" autocomplete="off">
+
+  <div class="campo">
+    <label for="bsns">Mensaje de BS NS (pegar tal cual de WhatsApp)</label>
+    <textarea class="msg" id="bsns" placeholder="LISTA ACTUALIZADA BRIDGESTONE/FIRESTONE/TOYO...&#10;175/70R13 82T F600 . FIRESTONE 38,00&#10;..."></textarea>
+    <div class="contador"><span id="contador">0</span> caracteres</div>
+  </div>
+
   <button id="btn">Generar informe</button>
 
   <div class="timer idle" id="timer">00:00.0</div>
@@ -79,7 +91,11 @@ var timerEl = document.getElementById('timer');
 var statusEl = document.getElementById('status');
 var barEl = document.getElementById('bar');
 var histEl = document.getElementById('hist');
+var bsnsEl = document.getElementById('bsns');
+var contadorEl = document.getElementById('contador');
 var t0 = 0, tick = null, historial = [];
+
+bsnsEl.addEventListener('input', function(){ contadorEl.textContent = bsnsEl.value.length; });
 
 function fmt(ms){
   var s = ms / 1000;
@@ -134,16 +150,25 @@ pwEl.addEventListener('keydown', function(e){ if (e.key === 'Enter') btn.click()
 
 btn.addEventListener('click', function(){
   var API_KEY = pwEl.value;
+  var mensaje = bsnsEl.value.trim();
+
   if (!API_KEY) {
     setTimerClass('err');
     statusEl.textContent = 'Escribí la contraseña para continuar.';
     pwEl.focus();
     return;
   }
+  if (!mensaje) {
+    setTimerClass('err');
+    statusEl.textContent = 'Pegá el mensaje de BS NS antes de generar.';
+    bsnsEl.focus();
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Generando...';
   setTimerClass('');
-  statusEl.textContent = 'Consultando Sheets y Odoo, armando el informe...';
+  statusEl.textContent = 'Procesando el mensaje y cruzando contra Odoo...';
   barEl.classList.add('on');
 
   t0 = performance.now();
@@ -156,9 +181,11 @@ btn.addEventListener('click', function(){
   fetch(URL_WEBHOOK, {
     method: 'POST',
     headers: {
+      'Content-Type': 'application/json',
       'x-api-key': API_KEY,
       'ngrok-skip-browser-warning': 'true'
     },
+    body: JSON.stringify({ bsns: mensaje }),
     signal: ctrl.signal
   })
   .then(function(r){
